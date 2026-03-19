@@ -25,12 +25,12 @@ type_chart = {
 }
 class Pokemon:
 
-    def __init__(self, name, types, hp, attack, defence, speed, moves):
+    def __init__(self, name, types, hp, attack, defense, speed, moves):
         self.name = name
         self.types = types
         self.hp = calc_hp(hp)
         self.attack = calc_stat(attack)
-        self.defence = calc_stat(defence)
+        self.defense = calc_stat(defense)
         self.speed = calc_stat(speed)
         self.current_hp = self.hp
         self.moves = moves
@@ -44,7 +44,7 @@ class Pokemon:
                 if t in type_chart[move.type]:
                     multiplier *= type_chart[move.type][t]
         multiplier *= 1.5 if move.type in self.types else 1
-        damage = int((self.attack/ defender.defence) * move.bp   * multiplier * np.random.uniform(0.85, 1))
+        damage = int((self.attack/ defender.defense) * move.bp   * multiplier * np.random.uniform(0.85, 1))
         defender.current_hp -= damage
     
 
@@ -53,6 +53,7 @@ class Pokemon:
 
     def reset(self):
         self.current_hp = self.hp
+    
     
 
 class Move:
