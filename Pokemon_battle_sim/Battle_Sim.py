@@ -7,48 +7,65 @@ def battle(p1,p2, nn1, nn2):
         actions1 = []
         states2 = []
         actions2 = []
+        rewards1 = []
+        rewards2 = []
         while p1.current_hp > 0 and p2.current_hp > 0:
             if p1.speed > p2.speed:
                 state = np.array(get_state(p1,p2))
                 outputs = nn1.forward(state)
-                move_index = np.argmax(outputs)
+                if np.random.rand() < 0.3:  
+                    move_index = np.random.randint(len(p1.moves))
+                else:
+                    move_index = np.argmax(outputs)
                 states1.append(state)
                 actions1.append(move_index)
                 move = p1.moves[move_index]
-                p1.attack_target(p2, move)
+                reward = p1.attack_target(p2, move)
+                rewards1.append(reward/50-0.2)
 
                 if p2.current_hp > 0:
                     state = np.array(get_state(p2,p1))
                     outputs = nn2.forward(state)
-                    move_index = np.argmax(outputs)
+                    if np.random.rand() < 0.3:  
+                        move_index = np.random.randint(len(p2.moves))
+                    else:
+                        move_index = np.argmax(outputs)
                     states2.append(state)
                     actions2.append(move_index)
                     move = p2.moves[move_index]
-                    p2.attack_target(p1,move)
-
+                    reward = p2.attack_target(p1,move)
+                    rewards2.append(reward/50 - 0.2)
             else:
                 state = np.array(get_state(p2,p1))
                 outputs = nn2.forward(state)
-                move_index = np.argmax(outputs)
+                if np.random.rand() < 0.3:  # 10% random
+                    move_index = np.random.randint(len(p2.moves))
+                else:
+                    move_index = np.argmax(outputs)
                 states2.append(state)
                 actions2.append(move_index)
                 move = p2.moves[move_index]
-                p2.attack_target(p1, move)
+                reward = p2.attack_target(p1,move)
+                rewards2.append(reward/50-0.2)
 
                 if p1.current_hp > 0:
                     state = np.array(get_state(p1,p2))
                     outputs = nn1.forward(state)
-                    move_index = np.argmax(outputs)
+                    if np.random.rand() < 0.3:  
+                        move_index = np.random.randint(len(p1.moves))
+                    else:
+                        move_index = np.argmax(outputs)
                     states1.append(state)
                     actions1.append(move_index)
                     move = p1.moves[move_index] 
-                    p1.attack_target(p2,move)
+                    reward = p1.attack_target(p2,move)
+                    rewards1.append(reward/50-0.2)
             turn += 1
         if p1.current_hp <= 0:
             winner = 2        
         else:
             winner = 1
-        return winner, states1, actions1, states2, actions2
+        return winner, states1, actions1, rewards1, states2, actions2, rewards2
 def get_state(attacker,defender):
     state = []
 

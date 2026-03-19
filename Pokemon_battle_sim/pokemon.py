@@ -49,6 +49,7 @@ class Pokemon:
     
 
         print(f"{self.name} used {move.name} and dealt {damage} damage!")
+        return damage   
 
     def reset(self):
         self.current_hp = self.hp
