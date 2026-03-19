@@ -1,4 +1,8 @@
-import random
+import numpy as np
+def calc_hp(base_hp):
+    return 2 * base_hp + 204
+def calc_stat(base_stat):
+    return 2 * base_stat + 99
 type_chart = {
     "Normal": {"Ghost" : 0, "Rock" : 0.5, "Steel" : 0.5},
     "Bug": {"Fire" : 0.5, "Steel" : 0.5, "Fairy" : 0.5, "Fighting" : 0.5, "Poison" : 0.5, "Flying" : 0.5, "Ghost" : 0.5, "Dark" : 2, "Psychic" : 2, "Grass" : 2},
@@ -19,48 +23,6 @@ type_chart = {
     "Dark": {"Dark": 0.5, "Fighting": 0.5, "Fairy": 0.5, "Ghost": 2, "Psychic": 2},
     "Fairy": {"Steel": 0.5, "Fire": 0.5, "Poison": 0.5, "Dark": 2, "Fighting": 2, "Dragon": 2}
 }
-def calc_hp(base_hp):
-    return 2 * base_hp + 204
-def calc_stat(base_stat):
-    return 2 * base_stat + 99
-def battle(p1,p2):
-        turn = 0
-
-        while p1.current_hp > 0 and p2.current_hp > 0:
-            if p1.speed > p2.speed:
-                move = random.choice(p1.moves)
-                p1.attack_target(p2, move)
-
-                if p2.current_hp > 0:
-                    move = random.choice(p2.moves)
-                    p2.attack_target(p1,move)
-
-            else:
-                move = random.choice(p2.moves)
-                p2.attack_target(p1, move)
-
-                if p1.current_hp > 0:
-                    move = random.choice(p1.moves) 
-                    p1.attack_target(p2,move)
-            turn += 1
-        if p1.current_hp <= 0:
-            return p2.name
-        else:
-            return p1.name
-def get_state(attacker,defender):
-    state = []
-
-    state.append(attacker.current_hp / attacker.hp)
-    state.append(defender.current_hp / defender.hp)    
-
-    for move in attacker.moves:
-        multiplier = 1
-        for t in defender.types:
-            if move.type in type_chart and t in type_chart[move.type]:
-                multiplier *= type_chart[move.type][t]
-        state.append(multiplier)
-        
-    return state
 class Pokemon:
 
     def __init__(self, name, types, hp, attack, defence, speed, moves):
@@ -82,7 +44,7 @@ class Pokemon:
                 if t in type_chart[move.type]:
                     multiplier *= type_chart[move.type][t]
         multiplier *= 1.5 if move.type in self.types else 1
-        damage = int((self.attack/ defender.defence) * move.bp   * multiplier * random.uniform(0.85, 1))
+        damage = int((self.attack/ defender.defence) * move.bp   * multiplier * np.random.uniform(0.85, 1))
         defender.current_hp -= damage
     
 
