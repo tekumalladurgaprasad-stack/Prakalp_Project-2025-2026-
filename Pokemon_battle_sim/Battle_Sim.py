@@ -55,7 +55,11 @@ def battle(team1, team2, nn1, nn2):
             move = p1.moves[action1]
             dmg = p1.attack_target(p2, move)
 
-            # punish useless move
+            # FIX: handle "missed"
+            if dmg == 'missed':
+                dmg = 0
+                reward1 -= 0.3
+
             if dmg == 0:
                 reward1 -= 0.5
             else:
@@ -88,6 +92,11 @@ def battle(team1, team2, nn1, nn2):
         if action2 < 4:
             move = p2.moves[action2]
             dmg = p2.attack_target(p1, move)
+
+            # FIX: handle "missed"
+            if dmg == 'missed':
+                dmg = 0
+                reward2 -= 0.3
 
             if dmg == 0:
                 reward2 -= 0.5

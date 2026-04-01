@@ -6,23 +6,30 @@ import itertools
 import random
 
 # ---------------- MOVES ----------------
-Earthquake = Move("Earthquake", "Ground", 100)
-Flamethrower = Move("Flamethrower", "Fire", 90)
-Air_slash = Move("Air Slash", "Flying", 75)
-Flare_Blitz = Move("Flare Blitz", "Fire", 120)
+Earthquake = Move("Earthquake", "Ground", 100, 100)
+Flamethrower = Move("Flamethrower", "Fire", 90, 100)
+Air_slash = Move("Air Slash", "Flying", 75, 95)
+Flare_Blitz = Move("Flare Blitz", "Fire", 120, 100)
 
-Surf = Move("Surf", "Water", 90)
-Ice_Beam = Move("Ice Beam", "Ice", 90)
-Dragon_Pulse = Move("Dragon Pulse", "Dragon", 90)
+Surf = Move("Surf", "Water", 90, 100)
+Ice_Beam = Move("Ice Beam", "Ice", 90, 100)
+Dragon_Pulse = Move("Dragon Pulse", "Dragon", 90, 100)
 
-Thunderbolt = Move("Thunderbolt", "Electric", 90)
-Volt_tackle = Move("Volt Tackle", "Electric", 120)
-Play_Rough = Move("Play Rough", "Fairy", 85)
+Thunderbolt = Move("Thunderbolt", "Electric", 90, 100)
+Volt_tackle = Move("Volt Tackle", "Electric", 120, 100)
+Play_Rough = Move("Play Rough", "Fairy", 90, 90)
 
-Sludge_Bomb = Move("Sludge Bomb", "Poison", 90)
-Solar_Beam = Move("Solar Beam", "Grass", 100)
-Giga_Drain = Move("Giga Drain", "Grass", 75)
+Sludge_Bomb = Move("Sludge Bomb", "Poison", 90, 100)
+Solar_Beam = Move("Solar Beam", "Grass", 120, 100)
+Giga_Drain = Move("Giga Drain", "Grass", 75, 100)
 
+Double_Edge = Move("Double Edge", "Normal", 120, 100)
+Ice_Punch = Move("Ice Punch", "Ice", 75, 100)
+Crunch = Move("Crunch", "Dark", 80, 100)
+
+Iron_Head = Move("Iron Head", "Steel", 80, 100)
+X_Scissor = Move("X-Scissor", "Bug", 80, 100)
+Close_Combat = Move("Close Combat", "Fighting", 120, 100)
 # ---------------- POKEMON ----------------
 Charizard = Pokemon("Charizard", ["Fire","Flying"], 78, 109, 85, 100,
                     [Earthquake, Flamethrower, Air_slash, Flare_Blitz])
@@ -36,7 +43,13 @@ Pikachu = Pokemon("Pikachu", ["Electric"], 70, 100, 55, 90,
 Venusaur = Pokemon("Venusaur", ["Grass","Poison"], 80, 100, 100, 80,
                    [Sludge_Bomb, Solar_Beam, Giga_Drain, Earthquake])
 
-all_pokemon = [Charizard, Blastoise, Pikachu, Venusaur]
+Snorlax = Pokemon("Snorlax", ["Normal"],160,110,110,30,
+                  [Earthquake, Double_Edge, Crunch, Ice_Punch])
+
+Scizor = Pokemon("Scizor", ["Bug", "Steel"],70,130,100,65,
+                 [Iron_Head, X_Scissor, Close_Combat, Ice_Punch])
+
+all_pokemon = [Charizard, Blastoise, Pikachu, Venusaur, Snorlax, Scizor]
 
 # ---------------- TEAM GENERATION ----------------
 teams = list(itertools.combinations(all_pokemon, 2))

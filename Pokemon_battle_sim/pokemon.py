@@ -1,4 +1,5 @@
 import numpy as np
+import random
 
 type_chart = {
     "Normal": {"Ghost": 0, "Rock": 0.5, "Steel": 0.5},
@@ -12,6 +13,13 @@ type_chart = {
     "Dragon": {"Fairy": 0, "Steel": 0.5, "Dragon": 2},
     "Fairy": {"Steel": 0.5, "Fire": 0.5, "Poison": 0.5, "Dark": 2, "Fighting": 2, "Dragon": 2},
     "Poison": {"Steel": 0, "Poison": 0.5, "Ground": 0.5, "Fairy": 2, "Grass": 2},
+    "Steel":{"Steel":0.5,"Electric":0.5,"Fire":0.5,"Water":0.5,"Ice":2,"Rock":2,"Fairy":2},
+    "Ghost":{"Normal":0,"Dark":0.5,"Ghost":2,"Psychic":2},
+    "Psychic":{"Dark":0,"Poison":2,"Fighting":2,"Steel": 0.5, "Psychic": 0.5},
+    "Fighting": {"Ghost": 0, "Flying": 0.5, "Psychic": 0.5, "Fairy": 0.5, "Bug": 0.5, "Poison": 0.5, "Ice": 2, "Steel": 2, "Rock": 2, "Normal": 2, "Dark": 2},
+    "Dark": {"Dark":0.5,"Fighting":0.5,"Fairy":0.5,"Psychic":2,"Ghost":2},
+    "Bug":{"Fire":0.5,"Steel":0.5,"Fairy":0.5,"Ghost":0.5,"Flying":0.5,"Fighting":0.5,"Poison":0.5,"Dark":2,"Psychic":2,"Grass":2},
+    "Rock": {"Fighting":0.5,"Ground":0.5,"Steel":0.5,"Flying":2,"Fire":2,"Bug":2,"Ice":2},
 }
 
 def calc_hp(base_hp):
@@ -42,12 +50,13 @@ class Pokemon:
 
     def attack_target(self, target, move):
         multiplier = 1
-
+        if random.uniform(0,100) > move.acc:
+            return 'missed'
         for t in target.types:
             if move.type in type_chart and t in type_chart[move.type]:
                 multiplier *= type_chart[move.type][t]
 
-        damage = (self.attack / target.defence) * move.bp * multiplier 
+        damage = (self.attack / target.defence) * move.bp * multiplier
 
         target.current_hp -= damage
         target.current_hp = max(0, target.current_hp)
@@ -58,7 +67,8 @@ class Pokemon:
 
 
 class Move:
-    def __init__(self, name, type, bp):
+    def __init__(self, name, type, bp, acc):
         self.name = name
         self.type = type
         self.bp = bp
+        self.acc = acc
