@@ -4,6 +4,7 @@ from AND_gate import AND_GATE, predict
 from NAND_gate import NAND_GATE
 from XOR_gate import XOR_GATE, prediction_XOR_XNOR
 from XNOR_gate import XNOR_GATE
+from visualize_gate import plot_gate
 import tkinter as tk
 import threading
 
@@ -22,6 +23,7 @@ WHITE     = "#e0e0e0"
 
 # ── global state ──────────────────────────────────────────────────────────────
 weights, biases, current_gate = None, None, None
+current_gate_name = None
 x1_val, x2_val = 0, 0
 adder_op = None
 
@@ -119,7 +121,7 @@ def select_gate(name, outer):
     pulse_btn_border(outer, NEON_YLW, BORDER)
 
     def _train():
-        global weights, biases, current_gate
+        global weights, biases, current_gate, current_gate_name
         dispatch = {
             "AND":  (AND_GATE,  "basic"),
             "OR":   (OR_GATE,   "basic"),
@@ -131,11 +133,21 @@ def select_gate(name, outer):
         fn, kind = dispatch[name]
         weights, biases = fn()
         current_gate = kind
+        current_gate_name = name
         window.after(0, lambda: gate_status_label.config(
             text=f"✓  {name} ready", fg=NEON_GRN))
         window.after(0, lambda: pulse_btn_border(outer, NEON_GRN, BORDER))
 
     threading.Thread(target=_train, daemon=True).start()
+
+
+def plot_current_gate():
+    if current_gate is None or weights is None:
+        fade_label(result_label, "⚠  train a gate first", NEON_ORG)
+        return
+    gate_status_label.config(text="opening plot…", fg=NEON_YLW)
+    # matplotlib MUST run on the main thread — use after() instead of a Thread
+    window.after(0, lambda: plot_gate(current_gate_name, weights, biases, current_gate))
 
 
 def predict_output():
@@ -380,7 +392,11 @@ divider(gate_frame)
 
 pred_outer, pred_btn = sharp_btn(gate_frame, "▶  PREDICT", NEON_GRN,
                                   predict_output, width=14, font_size=10)
-pred_outer.pack(pady=(2, 6))
+pred_outer.pack(pady=(2, 3))
+
+plot_outer, plot_btn = sharp_btn(gate_frame, "◈  PLOT", NEON_BLUE,
+                                  plot_current_gate, width=14, font_size=10)
+plot_outer.pack(pady=(0, 6))
 
 result_label = tk.Label(gate_frame, text="output  →  —",
     font=("Courier", 16, "bold"), fg=NEON_BLUE, bg=BG)
