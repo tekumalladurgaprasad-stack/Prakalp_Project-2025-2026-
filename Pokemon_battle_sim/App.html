@@ -36,10 +36,10 @@
   /* ── BATTLE ── */
   #battle { width:800px; display:none; flex-direction:column; }
 
-  /* Field — sprites only, no HUDs overlapping */
+  /* Field */
   #field { width:800px; height:220px; position:relative; overflow:hidden; background:#0e1428; }
 
-  /* HUD strip sits between field and bottom panel */
+  /* HUD strip */
   #hud-strip {
     width:800px; background:#0d0d20; border-top:2px solid #e8c84a;
     border-bottom:2px solid #e8c84a; display:flex; align-items:stretch;
@@ -65,15 +65,34 @@
   .log-line.heal { color:#66ff66; }
   .log-line.info { color:#f5c518; }
 
-  /* sprites — centred in the field, no HUDs to dodge */
+  /* ── SPRITES ── */
   .sprite { position:absolute; image-rendering:pixelated; image-rendering:crisp-edges; transition:transform .3s, opacity .3s; }
-  #spr-enemy  { width:120px; height:120px; top:10px; right:160px; }
-  #spr-player { width:120px; height:120px; bottom:0;  left:120px; }
+
+  /* Enemy sprite: 120×120, sits on top of its platform.
+     Platform: top:108px, right:60px, width:200px
+     Platform centre from right = 60 + 100 = 160px from right edge.
+     Sprite centre from right  = right + 60  → right: 100px
+     Sprite bottom should land at platform top (108px) → top = 108 - 120 = -12px
+     Add a few px so the feet overlap the platform rim naturally → top: -4px           */
+  #spr-enemy  {
+    width:120px; height:120px;
+    top: 4px;           /* bottom = 124px → sits on platform rim at 108px */
+    right: 100px;       /* horizontally centred over the enemy plate       */
+  }
+
+  /* Player sprite: bottom=0, horizontally centred over player plate.
+     Platform: bottom:0, left:60px, width:200px → centre = left:160px
+     Sprite centre = left + 60 → left:100px                                            */
+  #spr-player {
+    width:120px; height:120px;
+    bottom: 0;
+    left: 100px;        /* horizontally centred over the player plate */
+  }
 
   /* platforms */
   .platform { position:absolute; border-radius:50%; }
   #plat-enemy  { width:200px; height:32px; background:#0f3010; border:2px solid #1a5520; top:108px; right:60px; }
-  #plat-player { width:200px; height:32px; background:#0f3010; border:2px solid #1a5520; bottom:0; left:60px; }
+  #plat-player { width:200px; height:32px; background:#0f3010; border:2px solid #1a5520; bottom:0;  left:60px; }
 
   /* sky strips */
   .sky { position:absolute; left:0; right:0; }
@@ -120,7 +139,7 @@
   .type-badge { display:inline-block; font-size:9px; font-weight:bold; padding:1px 6px; border-radius:3px; margin-right:3px; }
 
   /* scrollbar */
-  #logpanel::-webkit-scrollbar { width:6px; } 
+  #logpanel::-webkit-scrollbar { width:6px; }
   #logpanel::-webkit-scrollbar-track { background:#08080f; }
   #logpanel::-webkit-scrollbar-thumb { background:#e8c84a; border-radius:3px; }
 </style>
@@ -158,11 +177,11 @@
     <div class="sky" style="top:88px;height:44px;background:#10102e;"></div>
     <div class="sky" style="top:132px;height:44px;background:#131338;"></div>
     <div class="sky" style="top:176px;height:44px;background:#161640;"></div>
-    <!-- platforms -->
-    <div id="plat-enemy" class="platform"></div>
+    <!-- platforms (rendered first / behind sprites) -->
+    <div id="plat-enemy"  class="platform"></div>
     <div id="plat-player" class="platform"></div>
-    <!-- sprites only — no HUDs here -->
-    <img id="spr-enemy" class="sprite" src="" alt="">
+    <!-- sprites -->
+    <img id="spr-enemy"  class="sprite" src="" alt="">
     <img id="spr-player" class="sprite" src="" alt="">
   </div>
 
@@ -215,26 +234,72 @@
 
 </div>
 
-<!-- background music (OG Pokémon battle theme via YouTube iframe API) -->
 <button id="music-btn" onclick="toggleMusic()">♪ MUSIC ON</button>
 
 <script>
-// ── SPRITES ──────────────────────────────────────────────────────────────────
-// Sprites are loaded from the sprites/ folder
-function spriteKey(name, back){
-  const side = back ? 'back' : 'front';
-  return 'sprites/' + name.toLowerCase() + '_' + side + '.png';
+// ═══════════════════════════════════════════════════════════════════════════════
+// NEURAL NETWORK WEIGHTS — loaded from weights.json at runtime.
+//
+// weights.json must live in the same folder as this HTML file.
+// Expected shape:
+//   {
+//     "W1": [[...], ...],   // shape [7, 8]
+//     "B1": [...],          // shape [8]
+//     "W2": [[...], ...],   // shape [8, 5]
+//     "B2": [...]           // shape [5]
+//   }
+//
+// To convert your .npy files run this once in Python:
+//
+//   import numpy as np, json
+//   weights = {
+//     "W1": np.load("W1.npy").tolist(),
+//     "B1": np.load("B1.npy").tolist(),
+//     "W2": np.load("W2.npy").tolist(),
+//     "B2": np.load("B2.npy").tolist(),
+//   }
+//   with open("weights.json", "w") as f:
+//       json.dump(weights, f)
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let W1 = null, W2 = null, B1 = null, B2 = null;
+let weightsReady = false;
+
+async function loadWeights() {
+  try {
+    const res = await fetch('weights.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    W1 = data.W1;
+    B1 = data.B1;
+    W2 = data.W2;
+    B2 = data.B2;
+    weightsReady = true;
+    console.log('✓ weights.json loaded');
+  } catch (e) {
+    // Fallback: use the hardcoded weights from the original code so the game
+    // still works even without the JSON file present.
+    console.warn('weights.json not found — using built-in fallback weights.', e);
+    W1 = [[-0.19299465247904912,-0.24545290326410169,0.307440359530213,-0.708344679018203,0.5288059412841607,2.2776336618946273,0.04689829660344065,-0.5044784975500769],[-0.17229318804838287,0.3273185139908997,-0.37330445195040873,0.7508160000987715,-0.37392132403839357,-3.0324993688211666,-0.37917431686536757,1.5253388367908765],[2.3047305432242307,0.07292324888678327,5.681045832945009,-3.9820546425444165,-0.9071776632598846,8.737555797433975,1.5033120978416494,0.22267485451661334],[1.1415764526387682,-1.5438956699851571,2.1022397703090943,1.5587991061549675,-0.1240762228780527,-1.829467129447453,-1.6364555751688532,-0.37251085231889997],[-1.3730707666136182,-0.3742250687835908,-2.8193846621195062,0.9623482986919806,-0.7001315627847589,-4.289364266712237,-0.80393883194746,-0.9463133895423994],[0.6319906801814655,-1.9783237370667721,1.4091166015397067,2.0620900346871673,-1.042343570249311,4.970097128453775,-1.3933175380442124,-1.5988313036594264],[1.799320860121784,-0.11764417642846504,2.0048131333840624,-0.3752505994471356,-0.866438980384679,-0.9953631784985956,1.18920237585254,-2.626804858960987]];
+    B1 = new Array(8).fill(0);
+    W2 = [[0.37144586315414035,1.13158861242894,0.33552185832502207,-0.8650181389683851,0.2572565749278447],[-2.637159708768695,-0.13802539601420688,2.6387498512556564,2.184913398406395,-0.612582255905863],[-0.9033108778526034,2.267331275608484,-0.1439523234983835,-1.3316072295305565,1.934979839798704],[5.997014009266873,-4.3750624726328455,-3.612267986548129,-3.6144758913457604,0.6454914816246297],[-1.2405151652089903,3.236170856960345,1.9837638196813592,1.3470548869386072,-0.3622409105770268],[-2.1191875016408934,-0.2695339206924182,0.3274286963380627,1.4035821030215234,0.3260925579645701],[8.157821402971308,0.1712842173773591,-1.373513159087904,-1.8793456801187485,-4.2386213197260565],[5.3297350002697375,1.0291167381898672,0.6000357377181001,-3.6161044775052065,-1.455630151959521]];
+    B2 = new Array(5).fill(0);
+    weightsReady = true;
+  }
 }
 
-// ── WEIGHTS ───────────────────────────────────────────────────────────────────
-const W1 = [[-0.19299465247904912, -0.24545290326410169, 0.307440359530213, -0.708344679018203, 0.5288059412841607, 2.2776336618946273, 0.04689829660344065, -0.5044784975500769], [-0.17229318804838287, 0.3273185139908997, -0.37330445195040873, 0.7508160000987715, -0.37392132403839357, -3.0324993688211666, -0.37917431686536757, 1.5253388367908765], [2.3047305432242307, 0.07292324888678327, 5.681045832945009, -3.9820546425444165, -0.9071776632598846, 8.737555797433975, 1.5033120978416494, 0.22267485451661334], [1.1415764526387682, -1.5438956699851571, 2.1022397703090943, 1.5587991061549675, -0.1240762228780527, -1.829467129447453, -1.6364555751688532, -0.37251085231889997], [-1.3730707666136182, -0.3742250687835908, -2.8193846621195062, 0.9623482986919806, -0.7001315627847589, -4.289364266712237, -0.80393883194746, -0.9463133895423994], [0.6319906801814655, -1.9783237370667721, 1.4091166015397067, 2.0620900346871673, -1.042343570249311, 4.970097128453775, -1.3933175380442124, -1.5988313036594264], [1.799320860121784, -0.11764417642846504, 2.0048131333840624, -0.3752505994471356, -0.866438980384679, -0.9953631784985956, 1.18920237585254, -2.626804858960987]];
-const W2 = [[0.37144586315414035, 1.13158861242894, 0.33552185832502207, -0.8650181389683851, 0.2572565749278447], [-2.637159708768695, -0.13802539601420688, 2.6387498512556564, 2.184913398406395, -0.612582255905863], [-0.9033108778526034, 2.267331275608484, -0.1439523234983835, -1.3316072295305565, 1.934979839798704], [5.997014009266873, -4.3750624726328455, -3.612267986548129, -3.6144758913457604, 0.6454914816246297], [-1.2405151652089903, 3.236170856960345, 1.9837638196813592, 1.3470548869386072, -0.3622409105770268], [-2.1191875016408934, -0.2695339206924182, 0.3274286963380627, 1.4035821030215234, 0.3260925579645701], [8.157821402971308, 0.1712842173773591, -1.373513159087904, -1.8793456801187485, -4.2386213197260565], [5.3297350002697375, 1.0291167381898672, 0.6000357377181001, -3.6161044775052065, -1.455630151959521]];
-const B1 = new Array(8).fill(0);
-const B2 = new Array(5).fill(0);
+// Start loading immediately; the game waits until ready before battle begins.
+const weightsPromise = loadWeights();
+
+// ── SPRITES ──────────────────────────────────────────────────────────────────
+function spriteKey(name, back) {
+  return 'sprites/' + name.toLowerCase() + '_' + (back ? 'back' : 'front') + '.png';
+}
 
 // ── TYPE CHART ────────────────────────────────────────────────────────────────
 const TYPE_CHART = {
-  Normal:   {Ghost:0, Rock:0.5, Steel:0.5},
+  Normal:   {Ghost:0,Rock:0.5,Steel:0.5},
   Fire:     {Fire:0.5,Water:0.5,Rock:0.5,Dragon:0.5,Bug:2,Steel:2,Ice:2,Grass:2},
   Water:    {Water:0.5,Grass:0.5,Dragon:0.5,Fire:2,Rock:2,Ground:2},
   Grass:    {Grass:0.5,Fire:0.5,Bug:0.5,Flying:0.5,Poison:0.5,Dragon:0.5,Water:2,Rock:2,Ground:2},
@@ -258,14 +323,14 @@ const TYPE_COLORS = {
   Fire:"#d62828",Water:"#3a86ff",Grass:"#38b000",Electric:"#f9c74f",
   Ice:"#90e0ef",Ground:"#8B6914",Flying:"#7b2d8b",Dragon:"#560bad",
   Fairy:"#e07a9e",Poison:"#7b2d8b",Fighting:"#c1121f",Bug:"#55a630",
-  Steel:"#adb5bd",Dark:"#1b1b2f",Normal:"#6c757d",Psychic:"#d62828",
+  Steel:"#adb5bd",Dark:"#1b1b2f",Normal:"#6c757d",Psychic:"#cc3399",
   Ghost:"#4a0e8f",Rock:"#7c6f57",
 };
 const TYPE_FG = {Electric:"#000",Ice:"#000",Fairy:"#000",Steel:"#000"};
 
 // ── GAME DATA ─────────────────────────────────────────────────────────────────
-function calcHP(b){ return 2*b+204; }
-function calcStat(b){ return 2*b+99; }
+function calcHP(b)   { return 2*b+204; }
+function calcStat(b) { return 2*b+99;  }
 
 function makePoke(name,types,hp,atk,def,spd,moves){
   return {name,types,hp:calcHP(hp),attack:calcStat(atk),defence:calcStat(def),
@@ -293,6 +358,8 @@ const MOVES = {
   IronHead:     makeMove("Iron Head","Steel",80,100),
   XScissor:     makeMove("X-Scissor","Bug",80,100),
   CloseCombat:  makeMove("Close Combat","Fighting",120,100),
+  PsychoCut:    makeMove("Psycho Cut","Psychic",70,100),
+  RockSlide:    makeMove("Rock Slide","Rock",75,90),
 };
 
 const ALL_POKEMON = [
@@ -302,22 +369,20 @@ const ALL_POKEMON = [
   makePoke("Venusaur",["Grass","Poison"],80,100,100,80,[MOVES.SludgeBomb,MOVES.SolarBeam,MOVES.GigaDrain,MOVES.Earthquake]),
   makePoke("Snorlax",["Normal"],160,110,110,30,[MOVES.Earthquake,MOVES.DoubleEdge,MOVES.Crunch,MOVES.IcePunch]),
   makePoke("Scizor",["Bug","Steel"],70,130,100,65,[MOVES.IronHead,MOVES.XScissor,MOVES.CloseCombat,MOVES.IcePunch]),
+  makePoke("Gallade",["Psychic","Fighting"],68,125,115,80,[MOVES.CloseCombat,MOVES.PsychoCut,MOVES.XScissor,MOVES.RockSlide])
 ];
 
 // ── BATTLE STATE ──────────────────────────────────────────────────────────────
 let teamP=[], teamA=[], idxP=0, idxA=0, busy=false, gameOver=false;
 function curP(){ return teamP[idxP]; }
 function curA(){ return teamA[idxA]; }
-
 function deepCopy(p){ return Object.assign({},p,{moves:[...p.moves],types:[...p.types]}); }
 
 // ── NEURAL NET FORWARD ────────────────────────────────────────────────────────
-function tanh(x){ return Math.tanh(x); }
 function nnForward(state){
-  // z1 = state @ W1 + B1
+  if(!weightsReady) return state.map(()=>0);
   const z1 = B1.map((b,j)=>{ let s=b; for(let i=0;i<state.length;i++) s+=state[i]*W1[i][j]; return s; });
-  const a1 = z1.map(tanh);
-  // z2 = a1 @ W2 + B2
+  const a1 = z1.map(x=>Math.tanh(x));
   const z2 = B2.map((b,j)=>{ let s=b; for(let i=0;i<a1.length;i++) s+=a1[i]*W2[i][j]; return s; });
   return z2;
 }
@@ -361,11 +426,6 @@ function attackTarget(attacker, defender, move){
   return dmg;
 }
 
-// ── SPRITE HELPERS ───────────────────────────────────────────────────────────
-function loadSprite(name, back){
-  return spriteKey(name, back);
-}
-
 // ── HP BAR ───────────────────────────────────────────────────────────────────
 function hpColor(ratio){
   if(ratio>0.5) return '#30c030';
@@ -375,13 +435,10 @@ function hpColor(ratio){
 function updateHud(poke, prefix){
   const ratio = Math.max(0, poke.currentHp/poke.hp);
   const col = hpColor(ratio);
-  const fill = document.getElementById(prefix+'-hp-fill');
-  const gloss = document.getElementById(prefix+'-hp-gloss');
-  const txt = document.getElementById(prefix+'-hp-text');
-  fill.style.width = (ratio*100)+'%';
-  fill.style.background = col;
-  gloss.style.background = col;
-  txt.textContent = Math.ceil(poke.currentHp)+'/'+poke.hp;
+  document.getElementById(prefix+'-hp-fill').style.width = (ratio*100)+'%';
+  document.getElementById(prefix+'-hp-fill').style.background = col;
+  document.getElementById(prefix+'-hp-gloss').style.background = col;
+  document.getElementById(prefix+'-hp-text').textContent = Math.ceil(poke.currentHp)+'/'+poke.hp;
   document.getElementById(prefix+'-name').textContent = poke.name.toUpperCase();
   document.getElementById(prefix+'-types').innerHTML = poke.types.map(t=>{
     const bg=TYPE_COLORS[t]||'#555', fg=TYPE_FG[t]||'#fff';
@@ -392,8 +449,8 @@ function updateHud(poke, prefix){
 function updateSprites(slideP, slideE){
   const sprE = document.getElementById('spr-enemy');
   const sprP = document.getElementById('spr-player');
-  sprE.src = loadSprite(curA().name, false);
-  sprP.src = loadSprite(curP().name, true);
+  sprE.src = spriteKey(curA().name, false);
+  sprP.src = spriteKey(curP().name, true);
   sprE.className='sprite'+(slideE?' slide-in-right':'');
   sprP.className='sprite'+(slideP?' slide-in-left':'');
 }
@@ -439,37 +496,7 @@ function renderMoves(locked=false){
   }
 }
 
-// ── PLAYER TURN ──────────────────────────────────────────────────────────────
-function playerTurn(moveIdx, switching){
-  if(busy||gameOver) return;
-  busy=true;
-  renderMoves(true);
-
-  if(switching){
-    const ni=teamP.findIndex((p2,i)=>i!==idxP&&p2.currentHp>0);
-    if(ni>=0){
-      log('Come back, '+curP().name+'!','info');
-      idxP=ni;
-      log('Go, '+curP().name+'!','info');
-      updateSprites(true, false);
-      updateHud(curP(),'p');
-    }
-  } else {
-    const move=curP().moves[moveIdx];
-    log(curP().name+' used '+move.name+'!');
-    const res=attackTarget(curP(),curA(),move);
-    if(res==='missed') log('  ...missed!');
-    else {
-      log('  '+curA().name+' took '+Math.ceil(res)+' dmg!','damage');
-      flashSprite('spr-enemy');
-      if(curA().currentHp<=0) log('  '+curA().name+' fainted!','info');
-    }
-    updateHud(curA(),'e');
-  }
-
-  setTimeout(aiTurn, 500);
-}
-
+// ── FLASH ────────────────────────────────────────────────────────────────────
 function flashSprite(id){
   const el=document.getElementById(id);
   el.classList.remove('hit');
@@ -495,11 +522,10 @@ function bestMoveIdx(attacker, defender){
   return dmgs.indexOf(Math.max(...dmgs));
 }
 
-// ── SWITCH RULE ────────────────────────────────────────────────────────────────
 function aiShouldSwitch(){
   const bench = teamA[1 - idxA];
   if(!bench || bench.currentHp <= 0) return false;
-  let benchScore = 1.0, atkScore = 1.0;
+  let benchScore=1.0, atkScore=1.0;
   for(const dType of curP().types){
     for(const aType of bench.types){
       if(TYPE_CHART[aType] && TYPE_CHART[aType][dType] !== undefined)
@@ -513,51 +539,24 @@ function aiShouldSwitch(){
   return benchScore > 1.0 && benchScore > atkScore;
 }
 
-// ── AI TURN ───────────────────────────────────────────────────────────────────
-function aiTurn(){
-  // handle fainted active mon
-  if(curA().currentHp <= 0){
-    const ni = teamA.findIndex((p,i) => i !== idxA && p.currentHp > 0);
-    if(ni >= 0){
-      idxA = ni;
-      log('Enemy sent '+curA().name+'!','info');
-      updateSprites(false, true);
-      updateHud(curA(),'e');
-    }
-    setTimeout(gameLoop, 400);
-    return;
+// ── ATTACK HELPERS ───────────────────────────────────────────────────────────
+function doPlayerAttack(moveIdx){
+  const move = curP().moves[moveIdx];
+  log(curP().name+' used '+move.name+'!');
+  const res = attackTarget(curP(), curA(), move);
+  if(res==='missed') log('  ...missed!');
+  else {
+    log('  '+curA().name+' took '+Math.ceil(res)+' dmg!','damage');
+    flashSprite('spr-enemy');
+    if(curA().currentHp<=0) log('  '+curA().name+' fainted!','info');
   }
-
-  // rule-based switch — only when bench is genuinely better typed
-  if(aiShouldSwitch()){
-    log('Enemy withdrew '+curA().name+'!','info');
-    idxA = 1 - idxA;
-    log('Enemy sent '+curA().name+'!','info');
-    updateSprites(false, true);
-    updateHud(curA(),'e');
-    setTimeout(gameLoop, 500);
-    return;
-  }
-
-  // damage oracle: always picks the highest damage non-immune move
-  // 15% chance of picking a random viable move so it feels less robotic
-  const dmgs   = calcMoveDamages(curA(), curP());
-  const viable  = dmgs.map((d,i) => d > 0 ? i : -1).filter(i => i >= 0);
-  let aiIdx;
-  if(Math.random() < 0.15 && viable.length > 1){
-    aiIdx = viable[Math.floor(Math.random() * viable.length)];
-  } else {
-    aiIdx = bestMoveIdx(curA(), curP());
-  }
-
-  doAiAttack(aiIdx);
-  setTimeout(gameLoop, 500);
+  updateHud(curA(),'e');
 }
 
 function doAiAttack(idx){
-  const move=curA().moves[idx];
+  const move = curA().moves[idx];
   log('Enemy '+curA().name+' used '+move.name+'!');
-  const res=attackTarget(curA(),curP(),move);
+  const res = attackTarget(curA(), curP(), move);
   if(res==='missed') log('  ...missed!');
   else {
     log('  '+curP().name+' took '+Math.ceil(res)+' dmg!','damage');
@@ -565,6 +564,105 @@ function doAiAttack(idx){
     if(curP().currentHp<=0) log('  '+curP().name+' fainted!','info');
   }
   updateHud(curP(),'p');
+}
+
+// Pick the AI's action for this turn (resolved before the turn plays out)
+function pickAiAction(){
+  if(aiShouldSwitch()) return {type:'switch'};
+  const dmgs   = calcMoveDamages(curA(), curP());
+  const viable = dmgs.map((d,i)=>d>0?i:-1).filter(i=>i>=0);
+  let idx;
+  if(Math.random()<0.15 && viable.length>1)
+    idx = viable[Math.floor(Math.random()*viable.length)];
+  else
+    idx = bestMoveIdx(curA(), curP());
+  return {type:'move', idx};
+}
+
+// ── PLAYER TURN (entry point when player clicks) ──────────────────────────────
+// Priority rules (mirrors main-series Gen IV+):
+//   1. Switches always go before attacks, regardless of speed.
+//   2. Among attacks, higher speed goes first (speed tie → random).
+//
+// The AI also picks its action here so both decisions are made simultaneously.
+function playerTurn(moveIdx, playerSwitching){
+  if(busy||gameOver) return;
+  busy=true;
+  renderMoves(true);
+
+  // AI decides its action now (simultaneous choice)
+  const aiAction = pickAiAction();
+
+  // ── Case 1: Player switches — switches have full priority, go first ─────────
+  if(playerSwitching){
+    const ni = teamP.findIndex((p2,i)=>i!==idxP&&p2.currentHp>0);
+    if(ni>=0){
+      log('Come back, '+curP().name+'!','info');
+      idxP=ni;
+      log('Go, '+curP().name+'!','info');
+      updateSprites(true,false);
+      updateHud(curP(),'p');
+    }
+    // After player switches, AI takes its action (switch or attack)
+    setTimeout(()=>{
+      if(curA().currentHp>0) resolveAiAction(aiAction);
+      setTimeout(gameLoop,500);
+    },500);
+    return;
+  }
+
+  // ── Case 2: AI switches — its switch goes first, then player attacks ────────
+  if(aiAction.type==='switch'){
+    log('Enemy withdrew '+curA().name+'!','info');
+    idxA = 1-idxA;
+    log('Enemy sent '+curA().name+'!','info');
+    updateSprites(false,true);
+    updateHud(curA(),'e');
+    // Player attacks the new mon after the switch animation
+    setTimeout(()=>{
+      if(curA().currentHp>0) doPlayerAttack(moveIdx);
+      setTimeout(gameLoop,500);
+    },500);
+    return;
+  }
+
+  // ── Case 3: Both attacking — speed determines order ──────────────────────────
+  // Add a small random roll to break exact ties
+  const playerSpd = curP().speed + Math.random()*0.5;
+  const aiSpd     = curA().speed + Math.random()*0.5;
+
+  if(playerSpd >= aiSpd){
+    // Player goes first
+    log('⚡ '+curP().name+' is faster!','info');
+    doPlayerAttack(moveIdx);
+    // Only let AI retaliate if it's still standing
+    setTimeout(()=>{
+      if(curA().currentHp>0) doAiAttack(aiAction.idx);
+      setTimeout(gameLoop,500);
+    },500);
+  } else {
+    // AI goes first
+    log('⚡ '+curA().name+' is faster!','info');
+    doAiAttack(aiAction.idx);
+    // Only let player retaliate if they're still standing
+    setTimeout(()=>{
+      if(curP().currentHp>0) doPlayerAttack(moveIdx);
+      setTimeout(gameLoop,500);
+    },500);
+  }
+}
+
+// Execute a pre-chosen AI action (used after a player switch)
+function resolveAiAction(aiAction){
+  if(aiAction.type==='switch'){
+    log('Enemy withdrew '+curA().name+'!','info');
+    idxA = 1-idxA;
+    log('Enemy sent '+curA().name+'!','info');
+    updateSprites(false,true);
+    updateHud(curA(),'e');
+  } else {
+    doAiAttack(aiAction.idx);
+  }
 }
 
 // ── GAME LOOP ─────────────────────────────────────────────────────────────────
@@ -587,7 +685,7 @@ function gameLoop(){
     return;
   }
 
-  // auto-switch fainted mons
+  // Auto-send in the next living team member if current one fainted
   if(curP().currentHp<=0){
     const ni=teamP.findIndex((p,i)=>i!==idxP&&p.currentHp>0);
     if(ni>=0){ idxP=ni; log('Go, '+curP().name+'!','info'); updateSprites(true,false); }
@@ -626,7 +724,10 @@ function showSelection(){
   buildSelectionGrid();
 }
 
-function startBattle(chosen){
+async function startBattle(chosen){
+  // Wait for weights before starting (usually already resolved instantly)
+  await weightsPromise;
+
   document.getElementById('menu').style.display='none';
   document.getElementById('selection').style.display='none';
   const battleEl = document.getElementById('battle');
@@ -634,11 +735,8 @@ function startBattle(chosen){
   document.getElementById('end-overlay').style.display='none';
   document.getElementById('logpanel').innerHTML='';
 
-  // deep copy teams
   teamP=chosen.map(deepCopy);
-  // random 2 from ALL_POKEMON
-  const pool=[...ALL_POKEMON];
-  const shuffled=pool.sort(()=>Math.random()-.5);
+  const shuffled=[...ALL_POKEMON].sort(()=>Math.random()-.5);
   teamA=shuffled.slice(0,2).map(deepCopy);
 
   idxP=0; idxA=0; busy=false; gameOver=false;
@@ -684,70 +782,35 @@ function drawMenuCanvas(){
   const canvas=document.getElementById('menuCanvas');
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,800,580);
-
-  // scanlines
-  ctx.strokeStyle='#111122';
-  ctx.lineWidth=1;
+  ctx.strokeStyle='#111122'; ctx.lineWidth=1;
   for(let y=0;y<580;y+=4){ ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(800,y);ctx.stroke(); }
-
-  // gold border
-  ctx.strokeStyle='#000'; ctx.lineWidth=3;
-  ctx.strokeRect(10,10,780,560);
-  ctx.strokeStyle='#e8c84a'; ctx.lineWidth=3;
-  ctx.strokeRect(8,8,784,564);
-  ctx.strokeStyle='#7a6420'; ctx.lineWidth=1;
-  ctx.strokeRect(12,12,776,556);
-
-  // pokeball silhouette
+  ctx.strokeStyle='#000'; ctx.lineWidth=3; ctx.strokeRect(10,10,780,560);
+  ctx.strokeStyle='#e8c84a'; ctx.lineWidth=3; ctx.strokeRect(8,8,784,564);
+  ctx.strokeStyle='#7a6420'; ctx.lineWidth=1; ctx.strokeRect(12,12,776,556);
   ctx.strokeStyle='#7a6420'; ctx.lineWidth=2; ctx.fillStyle='#111122';
   ctx.beginPath(); ctx.arc(400,290,160,0,Math.PI*2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle='#222240';
-  ctx.fillRect(240,286,320,8);
+  ctx.fillStyle='#222240'; ctx.fillRect(240,286,320,8);
   ctx.beginPath(); ctx.arc(400,290,24,0,Math.PI*2); ctx.fill(); ctx.stroke();
 }
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
 drawMenuCanvas();
 
 // ── MUSIC ─────────────────────────────────────────────────────────────────────
-// Put your battle music file (mp3, mp4, ogg, wav) in the same folder as
-// App.html and set MUSIC_FILE to its filename. That's it.
-const MUSIC_FILE = 'battle_music.mp3';  // <-- change to your filename
-
+const MUSIC_FILE = 'battle_music.mp3';
 const bgm = new Audio(MUSIC_FILE);
 bgm.loop = true;
 bgm.volume = 0.4;
-
 let musicOn = false;
 
-// called on every user click — silently tries to play if not already playing
 function startMusic(){
   if(!musicOn){
-    bgm.play()
-      .then(()=>{
-        musicOn = true;
-        document.getElementById('music-btn').textContent = '♪ MUSIC ON';
-      })
-      .catch(()=>{}); // browser blocked it, user can click the button manually
+    bgm.play().then(()=>{ musicOn=true; document.getElementById('music-btn').textContent='♪ MUSIC ON'; }).catch(()=>{});
   }
 }
-
 function toggleMusic(){
   const btn = document.getElementById('music-btn');
-  if(musicOn){
-    bgm.pause();
-    btn.textContent = '♪ MUSIC OFF';
-    musicOn = false;
-  } else {
-    bgm.play()
-      .then(()=>{
-        musicOn = true;
-        btn.textContent = '♪ MUSIC ON';
-      })
-      .catch(()=>{
-        btn.textContent = '♪ FAILED';
-      });
-  }
+  if(musicOn){ bgm.pause(); btn.textContent='♪ MUSIC OFF'; musicOn=false; }
+  else { bgm.play().then(()=>{ musicOn=true; btn.textContent='♪ MUSIC ON'; }).catch(()=>{ btn.textContent='♪ FAILED'; }); }
 }
 </script>
 </body>

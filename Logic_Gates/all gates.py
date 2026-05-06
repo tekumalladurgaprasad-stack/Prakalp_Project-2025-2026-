@@ -5,33 +5,74 @@ from NAND_gate import NAND_GATE
 from XOR_gate import XOR_GATE, prediction_XOR_XNOR
 from XNOR_gate import XNOR_GATE
 import tkinter as tk
-from tkinter import ttk
 import threading
 
-# ── colours ──────────────────────────────────────────────────────────────────
-BG        = "#0f0f0f"
-DARK_GRAY = "#1a1a1a"
-MID_GRAY  = "#2a2a2a"
-NEON_BLUE = "#00fff0"
-NEON_PINK = "#ff00ff"
-NEON_GRN  = "#00ff00"
-NEON_YLW  = "#ffff00"
-NEON_ORG  = "#ff9900"
-DIM       = "#555555"
-WHITE     = "#ffffff"
+# ── palette ───────────────────────────────────────────────────────────────────
+BG        = "#0a0a0a"
+PANEL     = "#111111"
+BORDER    = "#2a2a2a"
+BORDER_HI = "#3a3a3a"
+NEON_BLUE = "#00e5ff"
+NEON_PINK = "#ff2d78"
+NEON_GRN  = "#00e676"
+NEON_YLW  = "#ffe600"
+NEON_ORG  = "#ff9100"
+DIM       = "#444444"
+WHITE     = "#e0e0e0"
 
-# ── global state ─────────────────────────────────────────────────────────────
+# ── global state ──────────────────────────────────────────────────────────────
 weights, biases, current_gate = None, None, None
 x1_val, x2_val = 0, 0
-adder_op = None                    # initialised after tk.Tk()
+adder_op = None
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  ANIMATION HELPERS
+#  WIDGET FACTORIES  (sharp, flat, custom-bordered)
 # ─────────────────────────────────────────────────────────────────────────────
-def fade_label(label, text, color, steps=8, delay=18):
-    """Fade a label out, swap text, fade back in."""
-    grays = ["#111111","#222222","#333333","#444444",
-             "#555555","#777777","#999999", color]
+def sharp_btn(parent, text, color, command, width=7, font_size=9):
+    """Flat button with a 1-px coloured border drawn via a surrounding Frame."""
+    outer = tk.Frame(parent, bg=color, padx=1, pady=1)
+    btn = tk.Button(
+        outer, text=text, command=command,
+        font=("Courier", font_size, "bold"),
+        fg=color, bg=PANEL,
+        activebackground=color, activeforeground=BG,
+        relief="flat", bd=0, cursor="hand2",
+        width=width, padx=0, pady=3,
+    )
+    btn.pack()
+    # store border frame ref on btn so callers can reach it
+    btn._outer = outer
+    return outer, btn
+
+
+def sharp_entry(parent, color, width=5):
+    """Entry with a 1-px coloured border."""
+    outer = tk.Frame(parent, bg=color, padx=1, pady=1)
+    e = tk.Entry(
+        outer, width=width,
+        font=("Courier", 18, "bold"),
+        fg=color, bg=PANEL,
+        insertbackground=color,
+        justify="center", relief="flat", bd=3,
+    )
+    e.pack()
+    return outer, e
+
+
+def section_label(parent, text, color=DIM):
+    tk.Label(parent, text=text, font=("Courier", 8),
+             fg=color, bg=BG).pack(anchor="w", padx=0, pady=(6, 1))
+
+
+def divider(parent):
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", pady=4)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ANIMATION HELPERS  (unchanged logic, same API)
+# ─────────────────────────────────────────────────────────────────────────────
+def fade_label(label, text, color, steps=8, delay=16):
+    grays = ["#111","#222","#333","#444","#555","#777","#999", color]
     def _out(i=0):
         if i < steps:
             label.config(fg=grays[steps - 1 - i])
@@ -45,23 +86,21 @@ def fade_label(label, text, color, steps=8, delay=18):
             label.after(delay, lambda: _in(i + 1))
     _out()
 
-def pulse_button(btn, base_bg, highlight):
-    """Flash a button background briefly."""
-    btn.config(bg=highlight)
-    btn.after(120, lambda: btn.config(bg=base_bg))
 
-def slide_frame(frame_out, frame_in, direction=1, steps=10, delay=15):
-    """Slide one frame out and another in (left/right)."""
+def pulse_btn_border(outer, color, restore):
+    outer.config(bg=color)
+    outer.after(130, lambda: outer.config(bg=restore))
+
+
+def slide_frame(frame_out, frame_in, direction=1, steps=10, delay=14):
     w = frame_out.winfo_width() or 480
     frame_in.place(x=direction * w, y=0, relwidth=1, relheight=1)
     frame_in.lift()
     def _step(i=0):
         frac = i / steps
-        ease = frac * frac * (3 - 2 * frac)          # smoothstep
-        ox = int(-direction * w * ease)
-        ix = int(direction * w * (1 - ease))
-        frame_out.place(x=ox, y=0, relwidth=1, relheight=1)
-        frame_in.place(x=ix, y=0, relwidth=1, relheight=1)
+        ease = frac * frac * (3 - 2 * frac)
+        frame_out.place(x=int(-direction * w * ease),      y=0, relwidth=1, relheight=1)
+        frame_in.place( x=int( direction * w * (1-ease)),  y=0, relwidth=1, relheight=1)
         if i < steps:
             frame_out.after(delay, lambda: _step(i + 1))
         else:
@@ -69,14 +108,15 @@ def slide_frame(frame_out, frame_in, direction=1, steps=10, delay=15):
             frame_in.place(x=0, y=0, relwidth=1, relheight=1)
     _step()
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  GATE LOGIC
 # ─────────────────────────────────────────────────────────────────────────────
-def select_gate(name, btn):
+def select_gate(name, outer):
     global weights, biases, current_gate
-    gate_status_label.config(text=f"Training {name}…", fg=NEON_YLW)
+    gate_status_label.config(text=f"training {name}…", fg=NEON_YLW)
     window.update()
-    pulse_button(btn, DARK_GRAY, MID_GRAY)
+    pulse_btn_border(outer, NEON_YLW, BORDER)
 
     def _train():
         global weights, biases, current_gate
@@ -92,17 +132,17 @@ def select_gate(name, btn):
         weights, biases = fn()
         current_gate = kind
         window.after(0, lambda: gate_status_label.config(
-            text=f"✓ {name} ready", fg=NEON_GRN))
+            text=f"✓  {name} ready", fg=NEON_GRN))
+        window.after(0, lambda: pulse_btn_border(outer, NEON_GRN, BORDER))
 
     threading.Thread(target=_train, daemon=True).start()
 
 
 def predict_output():
     if current_gate is None:
-        fade_label(result_label, "⚠  Select a gate first!", NEON_ORG)
+        fade_label(result_label, "⚠  select a gate first", NEON_ORG)
         return
-
-    fade_label(result_label, "Computing…", NEON_YLW)
+    fade_label(result_label, "computing…", NEON_YLW)
     window.update()
 
     def _run():
@@ -111,36 +151,34 @@ def predict_output():
         else:
             res = prediction_XOR_XNOR(x1_val, x2_val, weights, biases)
         color = NEON_GRN if res == 1 else NEON_PINK
-        window.after(0, lambda: fade_label(result_label, f"Output:  {res}", color))
+        window.after(0, lambda: fade_label(result_label, f"output  →  {res}", color))
 
     threading.Thread(target=_run, daemon=True).start()
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-#  BINARY ADDER / SUBTRACTOR  (uses your gate functions)
+#  BINARY ADDER / SUBTRACTOR
 # ─────────────────────────────────────────────────────────────────────────────
 def half_adder(a, b, w_xor, b_xor, w_and, b_and):
-    s = prediction_XOR_XNOR(a, b, w_xor, b_xor)
-    c = predict(a, b, w_and, b_and)
-    return s, c
+    return prediction_XOR_XNOR(a, b, w_xor, b_xor), predict(a, b, w_and, b_and)
 
 def full_adder(a, b, cin, w_xor, b_xor, w_and, b_and, w_or, b_or):
     s1 = prediction_XOR_XNOR(a, b, w_xor, b_xor)
     c1 = predict(a, b, w_and, b_and)
     s  = prediction_XOR_XNOR(s1, cin, w_xor, b_xor)
     c2 = predict(s1, cin, w_and, b_and)
-    cout = predict(c1, c2, w_or, b_or)
-    return s, cout
+    return s, predict(c1, c2, w_or, b_or)
 
-_adder_weights = {}          # cached so we don't retrain every click
+_adder_weights = {}
 
 def get_adder_weights():
     if not _adder_weights:
-        adder_status.config(text="Training gates…", fg=NEON_YLW)
+        adder_status.config(text="training gates…", fg=NEON_YLW)
         window.update()
         _adder_weights["xor_w"], _adder_weights["xor_b"] = XOR_GATE()
         _adder_weights["and_w"], _adder_weights["and_b"] = AND_GATE()
         _adder_weights["or_w"],  _adder_weights["or_b"]  = OR_GATE()
-        adder_status.config(text="Gates ready ✓", fg=NEON_GRN)
+        adder_status.config(text="gates ready ✓", fg=NEON_GRN)
     return _adder_weights
 
 def run_adder():
@@ -148,285 +186,289 @@ def run_adder():
         try:
             A = int(numA_entry.get())
             B = int(numB_entry.get())
+            if A < 0 or B < 0:
+                raise ValueError
         except ValueError:
-            window.after(0, lambda: fade_label(adder_result, "Invalid input!", NEON_ORG))
+            window.after(0, lambda: fade_label(adder_result, "positive integers only", NEON_ORG))
             return
 
-        A = max(0, min(15, A))
-        B = max(0, min(15, B))
         op = adder_op.get()
         aw = get_adder_weights()
 
-        # two's complement subtraction
-        effective_B = ((~B) & 0xF) + 1 if op == "sub" else B
+        # figure out how many bits we need
+        if op == "sub":
+            num_bits = max(A.bit_length(), B.bit_length(), 1)
+            mask = (1 << num_bits) - 1
+            effective_B = ((~B) & mask) + 1
+        else:
+            effective_B = B
+            num_bits = max(A.bit_length(), effective_B.bit_length(), 1) + 1  # +1 for carry
 
-        a_bits = [(A >> i) & 1 for i in range(4)]
-        b_bits = [(effective_B >> i) & 1 for i in range(4)]
+        a_bits = [(A >> i) & 1 for i in range(num_bits)]
+        b_bits = [(effective_B >> i) & 1 for i in range(num_bits)]
 
-        carry = 0
-        sum_bits = []
-        trace_lines = []
-
-        for i in range(4):
+        carry, sum_bits, trace_lines = 0, [], []
+        for i in range(num_bits):
             a, b = a_bits[i], b_bits[i]
             if i == 0 and op == "add":
-                s, carry = half_adder(a, b,
-                    aw["xor_w"], aw["xor_b"],
-                    aw["and_w"], aw["and_b"])
-                trace_lines.append(
-                    f"  bit{i}  HA({a},{b})  → sum={s}  carry={carry}")
+                s, carry = half_adder(a, b, aw["xor_w"], aw["xor_b"],
+                                             aw["and_w"], aw["and_b"])
+                trace_lines.append(f"  bit{i}  HA({a},{b})  -> s={s}  c={carry}")
             else:
+                prev_carry = carry
                 s, carry = full_adder(a, b, carry,
                     aw["xor_w"], aw["xor_b"],
                     aw["and_w"], aw["and_b"],
                     aw["or_w"],  aw["or_b"])
-                trace_lines.append(
-                    f"  bit{i}  FA({a},{b},cin={carry if i>0 else 0})  → sum={s}  carry={carry}")
+                trace_lines.append(f"  bit{i}  FA({a},{b},cin={prev_carry})  -> s={s}  c={carry}")
             sum_bits.append(s)
 
-        raw = sum(b << i for i, b in enumerate(sum_bits))
-        bin_str = "".join(str(sum_bits[i]) for i in range(3, -1, -1))
-        overflow = (carry == 1 and op == "add")
+        raw     = sum(bit << i for i, bit in enumerate(sum_bits))
+        bin_str = "".join(str(sum_bits[i]) for i in range(len(sum_bits)-1, -1, -1))
 
         if op == "sub":
-            display_val = A - B
-            equation = f"{A} − {B} = {display_val}"
+            result  = A - B
+            equation = f"{A} - {B} = {result}"
         else:
-            display_val = raw + (carry << 4)
-            equation = f"{A} + {B} = {display_val}" + (" (overflow!)" if overflow else "")
+            total    = raw + (carry << num_bits)
+            equation = f"{A} + {B} = {total}"
 
-        trace_text = "\n".join(trace_lines)
-        color = NEON_ORG if overflow else NEON_GRN
-
-        window.after(0, lambda: _update_adder(equation, bin_str, trace_text, color))
+        color = NEON_GRN
+        window.after(0, lambda: _update_adder(equation, bin_str, "\n".join(trace_lines), color))
 
     threading.Thread(target=_compute, daemon=True).start()
 
 def _update_adder(equation, bin_str, trace, color):
     fade_label(adder_result, equation, color)
-    adder_binary.config(text=f"Binary: {bin_str}")
-    trace_box.config(state="normal")
+    adder_binary.config(text=f"binary:  {bin_str}")
+    num_lines = trace.count("\n") + 1
+    trace_box.config(state="normal", height=max(4, num_lines))
     trace_box.delete("1.0", tk.END)
     trace_box.insert(tk.END, trace)
     trace_box.config(state="disabled")
+    window.update_idletasks()
+    window.geometry("")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  BIT TOGGLE HELPER
+#  BIT TOGGLE
 # ─────────────────────────────────────────────────────────────────────────────
-def set_bit(which, val, btn0, btn1):
+def set_bit(which, val, btn0, btn1, color):
     global x1_val, x2_val
     if which == "x1":
         x1_val = val
     else:
         x2_val = val
     active, inactive = (btn1, btn0) if val == 1 else (btn0, btn1)
-    active.config(fg="#0f0f0f",
-                  bg=NEON_BLUE if which == "x1" else NEON_PINK,
-                  relief="sunken")
-    inactive.config(fg=NEON_BLUE if which == "x1" else NEON_PINK,
-                    bg=DARK_GRAY, relief="raised")
+    active.config(fg=BG, bg=color)
+    inactive.config(fg=color, bg=PANEL)
+    # update border frame colours
+    active._outer.config(bg=color)
+    inactive._outer.config(bg=BORDER)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  BUILD WINDOW
+#  WINDOW
 # ─────────────────────────────────────────────────────────────────────────────
 window = tk.Tk()
-window.title("Gate Predictor Pro")
-window.geometry("520x560")
+window.title("Gate Predictor")
 window.configure(bg=BG)
 window.resizable(False, False)
 adder_op = tk.StringVar(value="add")
 
-# ── header ───────────────────────────────────────────────────────────────────
-tk.Label(window, text="GATE PREDICTOR PRO",
-         font=("Helvetica", 18, "bold"), fg=NEON_BLUE, bg=BG).pack(pady=(12, 0))
-tk.Label(window, text="perceptron & neural network edition",
-         font=("Helvetica", 9), fg=DIM, bg=BG).pack()
+# ── header ────────────────────────────────────────────────────────────────────
+hdr = tk.Frame(window, bg=BG)
+hdr.pack(fill="x", padx=14, pady=(10, 0))
+tk.Label(hdr, text="GATE PREDICTOR",
+         font=("Courier", 15, "bold"), fg=NEON_BLUE, bg=BG).pack(side="left")
+tk.Label(hdr, text="perceptron + nn",
+         font=("Courier", 8), fg=DIM, bg=BG).pack(side="left", padx=(8, 0), pady=(4, 0))
 
-# ── tab bar ──────────────────────────────────────────────────────────────────
-tab_frame = tk.Frame(window, bg=MID_GRAY, height=2)
-tab_frame.pack(fill="x", padx=16, pady=(10, 0))
+tk.Frame(window, bg=BORDER, height=1).pack(fill="x", padx=14, pady=(6, 0))
 
-btn_gate_tab = None
-btn_adder_tab = None
+# ── tab bar ───────────────────────────────────────────────────────────────────
+tab_frame = tk.Frame(window, bg=BG)
+tab_frame.pack(fill="x", padx=14, pady=(4, 0))
 
-container = tk.Frame(window, bg=BG, width=488, height=440)
-container.pack(fill="both", expand=True, padx=16, pady=8)
-container.pack_propagate(False)
+container = tk.Frame(window, bg=BG)
+container.pack(fill="x", padx=14, pady=(4, 10))
 
 gate_frame  = tk.Frame(container, bg=BG)
 adder_frame = tk.Frame(container, bg=BG)
-gate_frame.place(x=0, y=0, relwidth=1, relheight=1)
+gate_frame.pack(fill="both", expand=True)
+
+TAB_ACTIVE_BG   = PANEL
+TAB_INACTIVE_BG = BG
 
 def show_gate_tab():
-    slide_frame(adder_frame, gate_frame, direction=-1)
-    btn_gate_tab.config(fg=NEON_BLUE, bg=MID_GRAY)
-    btn_adder_tab.config(fg=DIM, bg=DARK_GRAY)
+    adder_frame.pack_forget()
+    gate_frame.pack(fill="both", expand=True)
+    btn_gate_tab.config(fg=NEON_BLUE, bg=TAB_ACTIVE_BG)
+    btn_adder_tab.config(fg=DIM,      bg=TAB_INACTIVE_BG)
 
 def show_adder_tab():
-    slide_frame(gate_frame, adder_frame, direction=1)
-    btn_adder_tab.config(fg=NEON_GRN, bg=MID_GRAY)
-    btn_gate_tab.config(fg=DIM, bg=DARK_GRAY)
+    gate_frame.pack_forget()
+    adder_frame.pack(fill="both", expand=True)
+    btn_adder_tab.config(fg=NEON_GRN, bg=TAB_ACTIVE_BG)
+    btn_gate_tab.config(fg=DIM,       bg=TAB_INACTIVE_BG)
 
-btn_gate_tab = tk.Button(tab_frame, text="Logic Gate", font=("Helvetica", 10, "bold"),
-    fg=NEON_BLUE, bg=MID_GRAY, bd=0, padx=14, pady=6,
-    activebackground=MID_GRAY, activeforeground=NEON_BLUE,
+btn_gate_tab = tk.Button(tab_frame, text="Logic Gate",
+    font=("Courier", 9, "bold"), fg=NEON_BLUE, bg=TAB_ACTIVE_BG,
+    bd=0, padx=10, pady=4, relief="flat",
+    activebackground=PANEL, activeforeground=NEON_BLUE,
     command=show_gate_tab)
 btn_gate_tab.pack(side="left")
 
-btn_adder_tab = tk.Button(tab_frame, text="Adder / Subtractor", font=("Helvetica", 10, "bold"),
-    fg=DIM, bg=DARK_GRAY, bd=0, padx=14, pady=6,
-    activebackground=MID_GRAY, activeforeground=NEON_GRN,
+btn_adder_tab = tk.Button(tab_frame, text="Adder / Sub",
+    font=("Courier", 9, "bold"), fg=DIM, bg=TAB_INACTIVE_BG,
+    bd=0, padx=10, pady=4, relief="flat",
+    activebackground=PANEL, activeforeground=NEON_GRN,
     command=show_adder_tab)
 btn_adder_tab.pack(side="left")
+
+tk.Frame(window, bg=BORDER, height=1).pack(fill="x", padx=14)
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  GATE FRAME
 # ═════════════════════════════════════════════════════════════════════════════
-tk.Label(gate_frame, text="Select Gate", font=("Helvetica", 10),
-         fg=DIM, bg=BG).pack(anchor="w", padx=4, pady=(8, 4))
+section_label(gate_frame, "SELECT GATE")
 
-gate_status_label = tk.Label(gate_frame, text="No gate selected",
-    font=("Helvetica", 9), fg=DIM, bg=BG)
-gate_status_label.pack(anchor="w", padx=4)
+gate_status_label = tk.Label(gate_frame, text="no gate selected",
+    font=("Courier", 8), fg=DIM, bg=BG)
+gate_status_label.pack(anchor="w", pady=(0, 4))
 
 g_btn_frame = tk.Frame(gate_frame, bg=BG)
-g_btn_frame.pack(pady=6)
+g_btn_frame.pack(anchor="w")
 
-gate_buttons_info = [
+GATE_BUTTONS_INFO = [
     ("AND",  NEON_PINK), ("OR",   NEON_BLUE),
     ("NAND", NEON_YLW),  ("NOR",  NEON_GRN),
     ("XOR",  NEON_PINK), ("XNOR", NEON_BLUE),
 ]
 
-for idx, (name, color) in enumerate(gate_buttons_info):
-    r, c = divmod(idx, 4)
-    btn = tk.Button(g_btn_frame, text=name, width=7,
-                    fg=color, bg=DARK_GRAY,
-                    activebackground=color, activeforeground=BG,
-                    font=("Helvetica", 10, "bold"), relief="raised")
-    btn.config(command=lambda n=name, b=btn: select_gate(n, b))
-    btn.grid(row=r, column=c, padx=5, pady=5)
+for idx, (name, color) in enumerate(GATE_BUTTONS_INFO):
+    r, c = divmod(idx, 3)
+    outer, btn = sharp_btn(g_btn_frame, name, color, None, width=6, font_size=9)
+    btn.config(command=lambda n=name, o=outer: select_gate(n, o))
+    outer.grid(row=r, column=c, padx=3, pady=3)
 
-# ── inputs ───────────────────────────────────────────────────────────────────
-tk.Label(gate_frame, text="Inputs", font=("Helvetica", 10),
-         fg=DIM, bg=BG).pack(anchor="w", padx=4, pady=(10, 4))
+divider(gate_frame)
+section_label(gate_frame, "INPUTS")
 
 inp_frame = tk.Frame(gate_frame, bg=BG)
-inp_frame.pack()
+inp_frame.pack(anchor="w", pady=(0, 4))
 
-# x1 row
-tk.Label(inp_frame, text="x1:", fg=NEON_YLW, bg=BG,
-         font=("Helvetica", 12)).grid(row=0, column=0, padx=8)
-x1b0 = tk.Button(inp_frame, text="0", width=4, fg="#0f0f0f", bg=NEON_BLUE,
-                  relief="sunken", font=("Helvetica", 10, "bold"),
-                  activebackground=NEON_BLUE)
-x1b1 = tk.Button(inp_frame, text="1", width=4, fg=NEON_BLUE, bg=DARK_GRAY,
-                  relief="raised", font=("Helvetica", 10, "bold"),
-                  activebackground=NEON_BLUE)
-x1b0.config(command=lambda: set_bit("x1", 0, x1b0, x1b1))
-x1b1.config(command=lambda: set_bit("x1", 1, x1b0, x1b1))
-x1b0.grid(row=0, column=1, padx=3, pady=5)
-x1b1.grid(row=0, column=2, padx=3, pady=5)
+def bit_row(parent, label, which, color, row):
+    tk.Label(parent, text=label, fg=NEON_YLW, bg=BG,
+             font=("Courier", 10, "bold"), width=3).grid(row=row, column=0, padx=(0,6))
+    o0, b0 = sharp_btn(parent, "0", color, None, width=3, font_size=9)
+    o1, b1 = sharp_btn(parent, "1", color, None, width=3, font_size=9)
+    # initial state: 0 is active
+    b0.config(fg=BG, bg=color)
+    o0.config(bg=color)
+    b1.config(fg=color, bg=PANEL)
+    o1.config(bg=BORDER)
+    b0.config(command=lambda: set_bit(which, 0, b0, b1, color))
+    b1.config(command=lambda: set_bit(which, 1, b0, b1, color))
+    o0.grid(row=row, column=1, padx=3, pady=2)
+    o1.grid(row=row, column=2, padx=3, pady=2)
 
-# x2 row
-tk.Label(inp_frame, text="x2:", fg=NEON_YLW, bg=BG,
-         font=("Helvetica", 12)).grid(row=1, column=0, padx=8)
-x2b0 = tk.Button(inp_frame, text="0", width=4, fg="#0f0f0f", bg=NEON_PINK,
-                  relief="sunken", font=("Helvetica", 10, "bold"),
-                  activebackground=NEON_PINK)
-x2b1 = tk.Button(inp_frame, text="1", width=4, fg=NEON_PINK, bg=DARK_GRAY,
-                  relief="raised", font=("Helvetica", 10, "bold"),
-                  activebackground=NEON_PINK)
-x2b0.config(command=lambda: set_bit("x2", 0, x2b0, x2b1))
-x2b1.config(command=lambda: set_bit("x2", 1, x2b0, x2b1))
-x2b0.grid(row=1, column=1, padx=3, pady=5)
-x2b1.grid(row=1, column=2, padx=3, pady=5)
+bit_row(inp_frame, "x1", "x1", NEON_BLUE, 0)
+bit_row(inp_frame, "x2", "x2", NEON_PINK, 1)
 
-# ── predict button ────────────────────────────────────────────────────────────
-tk.Button(gate_frame, text="▶  Predict", width=14, command=predict_output,
-          fg=NEON_GRN, bg=DARK_GRAY,
-          activebackground=NEON_GRN, activeforeground=BG,
-          font=("Helvetica", 12, "bold")).pack(pady=10)
+divider(gate_frame)
 
-result_label = tk.Label(gate_frame, text="Output: —",
-    font=("Courier", 18, "bold"), fg=NEON_BLUE, bg=BG)
-result_label.pack(pady=4)
+pred_outer, pred_btn = sharp_btn(gate_frame, "▶  PREDICT", NEON_GRN,
+                                  predict_output, width=14, font_size=10)
+pred_outer.pack(pady=(2, 6))
+
+result_label = tk.Label(gate_frame, text="output  →  —",
+    font=("Courier", 16, "bold"), fg=NEON_BLUE, bg=BG)
+result_label.pack(pady=(0, 4))
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  ADDER FRAME
 # ═════════════════════════════════════════════════════════════════════════════
-tk.Label(adder_frame, text="4-bit Adder / Subtractor",
-         font=("Helvetica", 11, "bold"), fg=NEON_GRN, bg=BG).pack(pady=(10, 2))
-tk.Label(adder_frame, text="Using XOR, AND, OR gate models",
-         font=("Helvetica", 8), fg=DIM, bg=BG).pack()
+section_label(adder_frame, "4-BIT ADDER / SUBTRACTOR")
 
-adder_status = tk.Label(adder_frame, text="", font=("Helvetica", 8), fg=DIM, bg=BG)
-adder_status.pack()
+adder_status = tk.Label(adder_frame, text="",
+    font=("Courier", 8), fg=DIM, bg=BG)
+adder_status.pack(anchor="w", pady=(0, 4))
 
 num_row = tk.Frame(adder_frame, bg=BG)
-num_row.pack(pady=10)
+num_row.pack(anchor="w")
 
-def num_entry(parent, label_text, color):
+def num_entry_widget(parent, label_text, color):
     f = tk.Frame(parent, bg=BG)
-    tk.Label(f, text=label_text, fg=color, bg=BG,
-             font=("Helvetica", 10)).pack()
-    e = tk.Entry(f, width=5, font=("Courier", 20, "bold"),
-                 fg=color, bg=DARK_GRAY, insertbackground=color,
-                 justify="center", relief="flat", bd=4)
-    e.pack()
+    tk.Label(f, text=label_text, fg=DIM, bg=BG,
+             font=("Courier", 8)).pack(anchor="w")
+    outer, e = sharp_entry(f, color, width=4)
+    outer.pack()
     return f, e
 
-fA, numA_entry = num_entry(num_row, "Number A  (0–15)", NEON_BLUE)
-fA.pack(side="left", padx=12)
+fA, numA_entry = num_entry_widget(num_row, "A", NEON_BLUE)
+fA.pack(side="left", padx=(0, 10))
 
 op_col = tk.Frame(num_row, bg=BG)
-op_col.pack(side="left", padx=8)
-tk.Label(op_col, text="op", fg=DIM, bg=BG, font=("Helvetica", 8)).pack()
-btn_add = tk.Button(op_col, text="+", width=3, font=("Helvetica", 14, "bold"),
-    fg=BG, bg=NEON_GRN, activebackground=NEON_GRN, relief="flat")
-btn_sub = tk.Button(op_col, text="−", width=3, font=("Helvetica", 14, "bold"),
-    fg=NEON_ORG, bg=DARK_GRAY, activebackground=NEON_ORG, relief="flat")
+op_col.pack(side="left", padx=(0, 10))
+tk.Label(op_col, text="op", fg=DIM, bg=BG, font=("Courier", 8)).pack()
+
+o_add, btn_add = sharp_btn(op_col, "+", NEON_GRN, None, width=2, font_size=12)
+o_sub, btn_sub = sharp_btn(op_col, "−", NEON_ORG, None, width=2, font_size=12)
+# initial: add is active
+btn_add.config(fg=BG, bg=NEON_GRN); o_add.config(bg=NEON_GRN)
+btn_sub.config(fg=NEON_ORG, bg=PANEL); o_sub.config(bg=BORDER)
 
 def set_op(op):
     adder_op.set(op)
     if op == "add":
-        btn_add.config(fg=BG, bg=NEON_GRN)
-        btn_sub.config(fg=NEON_ORG, bg=DARK_GRAY)
+        btn_add.config(fg=BG, bg=NEON_GRN);  o_add.config(bg=NEON_GRN)
+        btn_sub.config(fg=NEON_ORG, bg=PANEL); o_sub.config(bg=BORDER)
     else:
-        btn_sub.config(fg=BG, bg=NEON_ORG)
-        btn_add.config(fg=NEON_GRN, bg=DARK_GRAY)
+        btn_sub.config(fg=BG, bg=NEON_ORG);  o_sub.config(bg=NEON_ORG)
+        btn_add.config(fg=NEON_GRN, bg=PANEL); o_add.config(bg=BORDER)
 
 btn_add.config(command=lambda: set_op("add"))
 btn_sub.config(command=lambda: set_op("sub"))
-btn_add.pack(pady=2)
-btn_sub.pack(pady=2)
+o_add.pack(pady=(0, 3))
+o_sub.pack()
 
-fB, numB_entry = num_entry(num_row, "Number B  (0–15)", NEON_PINK)
-fB.pack(side="left", padx=12)
+fB, numB_entry = num_entry_widget(num_row, "B", NEON_PINK)
+fB.pack(side="left")
 
 numA_entry.insert(0, "5")
 numB_entry.insert(0, "3")
 
-tk.Button(adder_frame, text="▶  Compute", width=14, command=run_adder,
-          fg=NEON_GRN, bg=DARK_GRAY,
-          activebackground=NEON_GRN, activeforeground=BG,
-          font=("Helvetica", 12, "bold")).pack(pady=6)
+divider(adder_frame)
+
+comp_outer, _ = sharp_btn(adder_frame, "▶  COMPUTE", NEON_GRN,
+                            run_adder, width=14, font_size=10)
+comp_outer.pack(pady=(2, 6))
 
 adder_result = tk.Label(adder_frame, text="—",
-    font=("Courier", 16, "bold"), fg=NEON_GRN, bg=BG)
-adder_result.pack()
+    font=("Courier", 15, "bold"), fg=NEON_GRN, bg=BG)
+adder_result.pack(anchor="w")
 
 adder_binary = tk.Label(adder_frame, text="",
-    font=("Courier", 10), fg=DIM, bg=BG)
-adder_binary.pack()
+    font=("Courier", 9), fg=DIM, bg=BG)
+adder_binary.pack(anchor="w")
 
-tk.Label(adder_frame, text="Gate trace", font=("Helvetica", 9),
-         fg=DIM, bg=BG).pack(anchor="w", padx=16, pady=(8, 2))
+divider(adder_frame)
+section_label(adder_frame, "GATE TRACE")
 
-trace_box = tk.Text(adder_frame, height=5, width=54,
-    font=("Courier", 9), fg=NEON_BLUE, bg=DARK_GRAY,
+# 1-px border around trace box
+trace_outer = tk.Frame(adder_frame, bg=BORDER, padx=1, pady=1)
+trace_outer.pack(fill="x", pady=(0, 4))
+trace_box = tk.Text(trace_outer, height=5, width=54,
+    font=("Courier", 8), fg=NEON_BLUE, bg=PANEL,
     relief="flat", bd=4, state="disabled")
-trace_box.pack(padx=16)
+trace_box.pack(fill="x")
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ── auto-size window to content ───────────────────────────────────────────────
+window.update_idletasks()
+w = window.winfo_reqwidth()
+h = window.winfo_reqheight()
+window.geometry(f"{w}x{h}")
+
 window.mainloop()
